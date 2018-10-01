@@ -1,3 +1,4 @@
+
 import os
 import sys
 from struct import *
@@ -10,19 +11,23 @@ PIXELTYPE = ['UINT','HALF','FLOAT']
 class ExrHeader:
     def __init__(self):
         self.header = {}
-    
+
     def readInt32(self, fd):
         l = fd.read(4)
         return unpack('I', l)[0]
-    
+
     def readString(self,fd):
-        str = []
+        byts = []
         d = fd.read(1)
-        while d != '\0':
-            str.append(d)
+        while d != '\0' and ord(d) != 0x00:
+            byts.append(d)
             d = fd.read(1)
-        return ''.join(str)
-    
+        if len(byts) == 0:
+            return ""
+        byts.append(b'\0')
+        bytes_as_str = b''.join(byts).decode("unicode_escape")
+        return bytes_as_str[:-1]
+
     def convData(self,name, data, size):
         result = ""
         if name == 'int':
@@ -50,10 +55,12 @@ class ExrHeader:
             cid = 0
             while cid < (size-1):
                 str = []
-                while data[cid] != '\0':
-                    str.append(data[cid])
+                while cid < size and data[cid] != '\0' and data[cid] != 0: # 0 value is equal to \0
+                    str.append(bytes([ data[cid] ])) # convert back to byte
                     cid = cid + 1
-                idx = ''.join(str)
+                str.append(b'\0')
+                bytes_as_str = b''.join(str).decode("unicode_escape")
+                idx = bytes_as_str[:-1]
                 cid = cid + 1
                 ch = unpack('iiii', data[cid:cid+16])
                 cid = cid + 16
@@ -63,41 +70,40 @@ class ExrHeader:
             result = LINEORDER[ unpack('B', data)[0] ]
         else:
             result = unpack('%dB' % size, data)
-        
+
         return result
-    
+
     def read(self,fd):
         self.header = {}
         id = self.readInt32(fd)
         ver = self.readInt32(fd)
-        
         if id != MAGIC:
             return False
-        
+
         cn = self.readString(fd)
         while len(cn):
             name = self.readString(fd)
             size = self.readInt32(fd)
             data = fd.read(size)
-            
+
             data = self.convData(name, data, size)
-            
+
             self.header[ cn ] = { name:data }
             cn = self.readString(fd)
-        
+
         return True
-    
+
     def getAttr(self,name):
-        if self.header.has_key(name):
+        if name in self.header:
             return self.header[name]
         return ""
-    
+
     def get(self):
         return self.header
-    
+
     def __getattr__(self, name):
         return self.getAttr(name)
-    
+
     def attributes(self):
         return self.header.keys()
 
@@ -105,7 +111,8 @@ if __name__ == "__main__":
     fd = open(sys.argv[1], 'rb')
     exr = ExrHeader()
     if exr.read(fd):
-        print exr.attributes()
+        for a in exr.attributes():
+            print(a,":",exr.getAttr(a))
     else:
         print( "unknown file or error" )
     
